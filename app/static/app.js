@@ -8,10 +8,19 @@ const startDrill = document.querySelector("#startDrill");
 const drillCards = document.querySelectorAll(".drill-card");
 
 let stream = null;
-let drillTimer = null;
+let drillActive = false;
 let landmarkLoopId = null;
+let landmarkDetectionTimerId = null;
+let landmarkLoopGeneration = 0;
 let selectedDrill = "read";
-let lastVisionRequest = 0;
+let latestPoseResult = { landmarks: [], message: "Waiting for pose detection" };
+let jumpStatusUntil = 0;
+let calibrationReady = false;
+
+const CAPTURE_WIDTH = 640;
+const JUMP_STATUS_DURATION_MS = 750;
+const captureCanvas = document.createElement("canvas");
+const captureContext = captureCanvas.getContext("2d");
 
 function syncCameraHeight() {
   document.documentElement.style.setProperty("--camera-height", `${window.innerHeight}px`);
@@ -22,23 +31,53 @@ window.addEventListener("resize", syncCameraHeight);
 window.addEventListener("orientationchange", syncCameraHeight);
 
 function startLandmarkLoop() {
-  if (landmarkLoopId) {
-    cancelAnimationFrame(landmarkLoopId);
-  }
+  stopLandmarkLoop();
+  const generation = landmarkLoopGeneration;
 
-  const tick = async () => {
-    try {
+  const draw = () => {
+    if (generation !== landmarkLoopGeneration) {
+      return;
+    }
+
     resizeLandmarkCanvas(camera, landmarkCanvas);
+    drawLandmarkOverlay(landmarkCanvas, latestPoseResult);
+    landmarkLoopId = requestAnimationFrame(draw);
+  };
 
-    const poseResult = await requestLandmarkAnalysis(camera);
-    drawLandmarkOverlay(landmarkCanvas, poseResult);
-    applyVisionState(poseResult);
+  const detect = async () => {
+    let retryDelay = 0;
+    try {
+      latestPoseResult = await requestLandmarkAnalysis(camera);
+      applyVisionState(latestPoseResult);
+    } catch (error) {
+      console.error("Landmark detection failed", error);
+      cameraStatus.textContent = "Vision reconnecting";
+      retryDelay = 500;
     } finally {
-    landmarkLoopId = requestAnimationFrame(tick);
+      if (generation === landmarkLoopGeneration) {
+        // Start the next capture as soon as this request finishes, without
+        // allowing multiple expensive vision requests to overlap.
+        landmarkDetectionTimerId = window.setTimeout(detect, retryDelay);
+      }
     }
   };
 
-  tick();
+  draw();
+  detect();
+}
+
+function stopLandmarkLoop() {
+  landmarkLoopGeneration += 1;
+
+  if (landmarkLoopId) {
+    cancelAnimationFrame(landmarkLoopId);
+    landmarkLoopId = null;
+  }
+
+  if (landmarkDetectionTimerId) {
+    clearTimeout(landmarkDetectionTimerId);
+    landmarkDetectionTimerId = null;
+  }
 }
 
 async function enableCamera() {
@@ -59,7 +98,7 @@ async function enableCamera() {
     startCamera.textContent = "Camera on";
     startCamera.disabled = true;
     calibratePose.disabled = false;
-    startDrill.disabled = false;
+    startDrill.disabled = true;
   } catch (error) {
     cameraStatus.textContent = "Camera blocked";
     console.error(error);
@@ -67,35 +106,38 @@ async function enableCamera() {
 }
 
 async function startCalibration() {
-  const calibration = await postJson("/api/calibration/start");
-  applyCalibrationState(calibration);
+  try {
+    const calibration = await postJson("/api/calibration/start");
+    applyCalibrationState(calibration);
+  } catch (error) {
+    cameraStatus.textContent = error.message;
+  }
 }
 
 async function toggleDrill() {
-  if (drillTimer) {
-    const state = await postJson("/api/drill/stop");
-    clearInterval(drillTimer);
-    drillTimer = null;
-    applyDrillState(state);
-    return;
+  try {
+    if (drillActive) {
+      applyDrillState(await postJson("/api/drill/stop"));
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("drill", selectedDrill);
+    applyDrillState(await postJson("/api/drill/start", formData));
+  } catch (error) {
+    cameraStatus.textContent = error.message;
   }
-
-  const formData = new FormData();
-  formData.append("drill", selectedDrill);
-  const state = await postJson("/api/drill/start", formData);
-  applyDrillState(state);
-  drillTimer = window.setInterval(updateDrillCue, 250);
-}
-
-async function updateDrillCue() {
-  const response = await fetch("/api/drill/tick");
-  applyDrillState(await response.json());
 }
 
 function applyDrillState(state) {
+  drillActive = state.active;
   repCount.textContent = state.repLabel;
   startDrill.textContent = state.buttonLabel;
-  cameraStatus.textContent = state.status;
+  calibratePose.disabled = drillActive || !stream;
+
+  if (performance.now() >= jumpStatusUntil) {
+    cameraStatus.textContent = state.status;
+  }
 }
 
 function applyVisionState(poseResult) {
@@ -103,11 +145,35 @@ function applyVisionState(poseResult) {
     applyCalibrationState(poseResult.calibration);
   }
 
-  if (drillTimer || typeof poseResult.isLoaded !== "boolean") {
+  if (
+    typeof poseResult.isLoaded !== "boolean" ||
+    typeof poseResult.isJumped !== "boolean"
+  ) {
     return;
   }
 
   if (poseResult.calibration?.active) {
+    return;
+  }
+
+  if (!poseResult.calibration?.ready) {
+    return;
+  }
+
+  if (poseResult.drill) {
+    applyDrillState(poseResult.drill);
+  }
+
+  if (poseResult.isJumped) {
+    jumpStatusUntil = performance.now() + JUMP_STATUS_DURATION_MS;
+  }
+
+  if (performance.now() < jumpStatusUntil) {
+    cameraStatus.textContent = "Jumped";
+    return;
+  }
+
+  if (drillActive) {
     return;
   }
 
@@ -119,13 +185,20 @@ function applyVisionState(poseResult) {
 }
 
 function applyCalibrationState(calibration) {
+  calibrationReady = calibration.ready;
+
   if (!calibration.active) {
-    calibratePose.disabled = !stream;
+    calibratePose.disabled = !stream || drillActive;
     calibratePose.textContent = calibration.ready ? "Recalibrate" : "Calibrate";
+    startDrill.disabled = !stream || !calibrationReady;
+    if (calibration.message && performance.now() >= jumpStatusUntil) {
+      cameraStatus.textContent = calibration.message;
+    }
     return;
   }
 
   calibratePose.disabled = true;
+  startDrill.disabled = true;
   if (!calibration.collecting) {
     cameraStatus.textContent = `Stand tall: ${Math.ceil(calibration.delayRemaining)}s`;
     calibratePose.textContent = "Waiting";
@@ -137,13 +210,6 @@ function applyCalibrationState(calibration) {
 }
 
 async function requestLandmarkAnalysis(video) {
-  // Keep requests low while the Python endpoint is just boilerplate.
-  const now = performance.now();
-  if (now - lastVisionRequest < (1000/60)) {
-    return { landmarks: [], message: "Waiting for next frame" };
-  }
-  lastVisionRequest = now;
-
   const frame = await captureFrame(video);
   const formData = new FormData();
   formData.append("frame", frame, "camera-frame.jpg");
@@ -152,13 +218,29 @@ async function requestLandmarkAnalysis(video) {
 }
 
 async function captureFrame(video) {
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  const sourceWidth = video.videoWidth;
+  const sourceHeight = video.videoHeight;
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error("Camera frame is not ready");
+  }
 
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.72);
+  const captureHeight = Math.round(CAPTURE_WIDTH * (sourceHeight / sourceWidth));
+
+  if (captureCanvas.width !== CAPTURE_WIDTH || captureCanvas.height !== captureHeight) {
+    captureCanvas.width = CAPTURE_WIDTH;
+    captureCanvas.height = captureHeight;
+  }
+
+  captureContext.drawImage(video, 0, 0, CAPTURE_WIDTH, captureHeight);
+
+  return new Promise((resolve, reject) => {
+    captureCanvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error("Unable to capture camera frame"));
+      }
+    }, "image/jpeg", 0.6);
   });
 }
 
@@ -167,6 +249,11 @@ async function postJson(url, body = undefined) {
     method: "POST",
     body,
   });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Request failed (${response.status})`);
+  }
 
   return response.json();
 }
@@ -225,4 +312,17 @@ drillCards.forEach((card) => {
 startCamera.addEventListener("click", enableCamera);
 calibratePose.addEventListener("click", startCalibration);
 startDrill.addEventListener("click", toggleDrill);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopLandmarkLoop();
+  } else if (stream) {
+    startLandmarkLoop();
+  }
+});
+
+window.addEventListener("pagehide", () => {
+  stopLandmarkLoop();
+  stream?.getTracks().forEach((track) => track.stop());
+});
 

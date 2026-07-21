@@ -1,5 +1,10 @@
-from dataclasses import dataclass
-from app.helperfunctions import get_if_visible, get_landmark_by_name, average_y
+from dataclasses import dataclass, field
+from statistics import median
+
+from app.helperfunctions import average_y, get_if_visible, get_landmark_by_name
+
+
+BASE_POSE_FIELDS = ("hip_y", "knee_y", "ankle_y", "wrist_y", "shoulder_y")
 
 @dataclass
 class BasePose:
@@ -8,6 +13,10 @@ class BasePose:
     ankle_y: float | None = None
     wrist_y: float | None = None
     shoulder_y: float | None = None
+    _samples: dict[str, list[float]] = field(
+        default_factory=lambda: {name: [] for name in BASE_POSE_FIELDS},
+        repr=False,
+    )
 
     def reset(self) -> None:
         self.hip_y = None
@@ -15,6 +24,14 @@ class BasePose:
         self.ankle_y = None
         self.wrist_y = None
         self.shoulder_y = None
+        self._samples = {name: [] for name in BASE_POSE_FIELDS}
+
+    @property
+    def sample_count(self) -> int:
+        return min((len(values) for values in self._samples.values()), default=0)
+
+    def is_ready(self, minimum_samples: int) -> bool:
+        return self.sample_count >= minimum_samples and self.get_base_pose() is not None
 
     def get_base_pose(self) -> dict | None:
         if (
@@ -33,13 +50,8 @@ class BasePose:
             "wrist_y": self.wrist_y,
             "shoulder_y": self.shoulder_y,
         }
-    
+
     def calibrate_base_pose(self, landmarks: list[dict]) -> dict | None:
-        current_wrist_y = None
-        current_ankle_y = None
-        current_hip_y = None
-        current_knee_y = None
-        current_shoulder_y = None
         left_hip = get_landmark_by_name(landmarks, "left_hip")
         right_hip = get_landmark_by_name(landmarks, "right_hip")
         left_knee = get_landmark_by_name(landmarks, "left_knee")
@@ -51,40 +63,32 @@ class BasePose:
         left_shoulder = get_landmark_by_name(landmarks, "left_shoulder")
         right_shoulder = get_landmark_by_name(landmarks, "right_shoulder")
 
-        if get_if_visible(left_hip) and get_if_visible(right_hip):
-            current_hip_y = average_y(landmarks, "left_hip", "right_hip")
-        if get_if_visible(left_knee) and get_if_visible(right_knee):
-            current_knee_y = average_y(landmarks, "left_knee", "right_knee")
-        if get_if_visible(left_ankle) and get_if_visible(right_ankle):
-            current_ankle_y = average_y(landmarks, "left_ankle", "right_ankle")
-        if get_if_visible(left_wrist) and get_if_visible(right_wrist):
-            current_wrist_y = average_y(landmarks, "left_wrist", "right_wrist")
-        if get_if_visible(left_shoulder) and get_if_visible(right_shoulder):
-            current_shoulder_y = average_y(landmarks, "left_shoulder", "right_shoulder")
+        current_pose = {
+            "hip_y": average_y(landmarks, "left_hip", "right_hip")
+            if get_if_visible(left_hip) and get_if_visible(right_hip)
+            else None,
+            "knee_y": average_y(landmarks, "left_knee", "right_knee")
+            if get_if_visible(left_knee) and get_if_visible(right_knee)
+            else None,
+            "ankle_y": average_y(landmarks, "left_ankle", "right_ankle")
+            if get_if_visible(left_ankle) and get_if_visible(right_ankle)
+            else None,
+            "wrist_y": average_y(landmarks, "left_wrist", "right_wrist")
+            if get_if_visible(left_wrist) and get_if_visible(right_wrist)
+            else None,
+            "shoulder_y": average_y(landmarks, "left_shoulder", "right_shoulder")
+            if get_if_visible(left_shoulder) and get_if_visible(right_shoulder)
+            else None,
+        }
 
-        if self.hip_y is None:
-            self.hip_y = current_hip_y
-        elif current_hip_y is not None:
-            self.hip_y = (self.hip_y + current_hip_y)/2
-        
-        if self.ankle_y is None:
-            self.ankle_y = current_ankle_y
-        elif current_ankle_y is not None:
-            self.ankle_y = (self.ankle_y + current_ankle_y)/2
-        
-        if self.knee_y is None:
-            self.knee_y = current_knee_y
-        elif current_knee_y is not None:
-            self.knee_y = (self.knee_y + current_knee_y)/2
-        
-        if self.wrist_y is None:
-            self.wrist_y = current_wrist_y
-        elif current_wrist_y is not None:
-            self.wrist_y = (self.wrist_y + current_wrist_y)/2
-        
-        if self.shoulder_y is None:
-            self.shoulder_y = current_shoulder_y
-        elif current_shoulder_y is not None:
-            self.shoulder_y = (self.shoulder_y + current_shoulder_y)/2
-        
+        # A calibration sample is useful only when the complete reference pose
+        # is visible. This prevents unrelated joints from coming from different
+        # moments as the athlete moves in and out of frame.
+        if any(value is None for value in current_pose.values()):
+            return None
+
+        for name, value in current_pose.items():
+            self._samples[name].append(value)
+            setattr(self, name, median(self._samples[name]))
+
         return self.get_base_pose()
