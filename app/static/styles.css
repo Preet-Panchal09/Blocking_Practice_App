@@ -1,0 +1,243 @@
+﻿:root {
+  --hue: 82;
+  --paper: oklch(0.98 0.012 var(--hue));
+  --n-50: oklch(0.96 0.014 var(--hue));
+  --n-100: oklch(0.92 0.018 var(--hue));
+  --n-200: oklch(0.85 0.018 var(--hue));
+  --n-500: oklch(0.49 0.025 var(--hue));
+  --ink: oklch(0.19 0.025 var(--hue));
+  --accent: oklch(0.63 0.16 42);
+  --accent-dark: oklch(0.42 0.13 42);
+  --line: oklch(0.82 0.02 var(--hue));
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: light;
+  font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.camera-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  height: var(--camera-height, 100dvh);
+  max-height: var(--camera-height, 100dvh);
+  background: var(--ink);
+}
+
+#camera,
+#landmarkCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+#camera {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+#landmarkCanvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  transform: scaleX(-1);
+}
+
+.court-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.net-line {
+  position: absolute;
+  top: 30%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: color-mix(in oklch, var(--paper) 84%, transparent);
+}
+
+.target-window {
+  position: absolute;
+  top: 18%;
+  left: 18%;
+  width: 64%;
+  height: 34%;
+  border: 2px solid color-mix(in oklch, var(--accent) 78%, transparent);
+  border-radius: 8px;
+}
+
+.status-strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--paper) 22%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--ink) 72%, transparent);
+  color: var(--paper);
+  backdrop-filter: blur(10px);
+  font-variant-numeric: tabular-nums;
+}
+
+.practice-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
+  pointer-events: none;
+}
+
+.status-strip,
+.control-panel {
+  pointer-events: auto;
+}
+
+.control-panel {
+  padding: 10px;
+  border: 1px solid color-mix(in oklch, var(--paper) 22%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--ink) 68%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.drill-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.drill-card {
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--n-50);
+  color: var(--ink);
+  text-align: left;
+}
+
+.drill-card span,
+.drill-card small {
+  display: block;
+}
+
+.drill-card span {
+  font-weight: 800;
+}
+
+.drill-card small {
+  margin-top: 4px;
+  color: var(--n-500);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.drill-card.active {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 16%, var(--paper));
+}
+
+.drill-selector {
+  padding: 32px max(18px, env(safe-area-inset-right)) 48px max(18px, env(safe-area-inset-left));
+}
+.section-heading { margin-bottom: 18px; }
+.section-heading span { color: var(--accent-dark); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.section-heading h1 { margin: 5px 0 0; font-size: clamp(1.4rem, 4vw, 2rem); letter-spacing: -0.025em; }
+.actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.primary,
+.secondary {
+  min-height: 52px;
+  border-radius: 8px;
+  transition: transform 0.12s var(--ease-out), opacity 0.15s var(--ease-out);
+}
+
+.primary {
+  border: 0;
+  background: var(--accent);
+  color: var(--paper);
+  font-weight: 850;
+}
+
+.secondary {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.primary:active,
+.secondary:active,
+.drill-card:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .camera-stage {
+    height: var(--camera-height, 100dvh);
+    max-height: var(--camera-height, 100dvh);
+  }
+  .practice-overlay {
+    padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+  }
+  .status-strip { align-self: flex-start; width: min(280px, 42vw); padding: 7px 10px; }
+  .control-panel { align-self: flex-end; width: min(520px, 72vw); padding: 7px; }
+  .actions { margin-top: 0; }
+  .primary, .secondary { min-height: 44px; }
+  .drill-selector { padding-top: 24px; }
+}
+
+@media (min-width: 820px) and (min-height: 540px) {
+  .practice-overlay {
+    padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
+  }
+  .status-strip { align-self: flex-start; width: min(360px, 42vw); }
+  .control-panel { align-self: flex-end; width: min(620px, 58vw); padding: 12px; }
+}

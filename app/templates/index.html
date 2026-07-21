@@ -1,0 +1,53 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f4ee" />
+    <title>Middle Block Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=4" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="camera-stage" aria-label="Camera practice area">
+        <video id="camera" playsinline muted></video>
+        <canvas id="landmarkCanvas" aria-hidden="true"></canvas>
+        <div class="court-overlay" aria-hidden="true">
+          <div class="net-line"></div>
+          <div class="target-window"></div>
+        </div>
+        <div class="practice-overlay">
+          <div class="status-strip">
+            <span id="cameraStatus">Camera idle</span>
+            <strong id="repCount">0 reps</strong>
+          </div>
+
+          <section class="control-panel" aria-label="Practice controls">
+
+            <div class="actions">
+              <button id="startCamera" class="primary">Start camera</button>
+              <button id="calibratePose" class="secondary" disabled>Calibrate</button>
+              <button id="startDrill" class="secondary" disabled>Start drill</button>
+            </div>
+          </section>
+        </div>
+      </section>
+      <section class="drill-selector" aria-labelledby="drill-heading">
+        <div class="section-heading">
+          <span>Practice plan</span>
+          <h1 id="drill-heading">Choose your blocking read</h1>
+        </div>
+        <div class="drill-grid">
+          <button class="drill-card active" data-drill="read"><span>Read</span><small>Hold, track, close.</small></button>
+          <button class="drill-card" data-drill="left"><span>Left close</span><small>Open step to pin.</small></button>
+          <button class="drill-card" data-drill="right"><span>Right close</span><small>Crossover and seal.</small></button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="{{ url_for('static', path='/app.js') }}?v=4"></script>
+  </body>
+</html>
+
+
+
