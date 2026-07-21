@@ -8,6 +8,11 @@ DRILL_CUES = {
     "right": ("Right close: load", "Crossover right", "Press and seal"),
 }
 
+WAITING_FOR_LOAD = "waiting_for_load"
+LOADED = "loaded"
+AIRBORNE = "airborne"
+CONFIRMATION_FRAMES = 2
+
 
 @dataclass
 class DrillSession:
@@ -16,6 +21,11 @@ class DrillSession:
     reps: int = 0
     started_at: float | None = None
     last_rep_at: float | None = None
+    phase: str = WAITING_FOR_LOAD
+    status: str = "Camera live"
+    loaded_frames: int = 0
+    jumped_frames: int = 0
+    grounded_frames: int = 0
 
     def start(self, name: str) -> dict:
         self.name = name if name in DRILL_CUES else "read"
@@ -23,34 +33,63 @@ class DrillSession:
         self.reps = 0
         self.started_at = monotonic()
         self.last_rep_at = self.started_at
-        return self.snapshot("Stop drill", DRILL_CUES[self.name][0])
+        self.phase = WAITING_FOR_LOAD
+        self.status = DRILL_CUES[self.name][0]
+        self.loaded_frames = 0
+        self.jumped_frames = 0
+        self.grounded_frames = 0
+        return self.snapshot()
 
     def stop(self) -> dict:
         self.active = False
-        return self.snapshot("Start drill", "Camera live")
+        self.phase = WAITING_FOR_LOAD
+        self.status = "Camera live"
+        return self.snapshot()
 
-    def tick(self) -> dict:
+    def update(self, is_loaded: bool, is_jumped: bool) -> dict:
+        """Advance the drill from confirmed pose events, never elapsed time."""
         if not self.active:
-            return self.snapshot("Start drill", "Camera live")
-
-        now = monotonic()
-        if self.last_rep_at is None:
-            self.last_rep_at = now
-
-        if now - self.last_rep_at >= 2.2:
-            self.reps += 1
-            self.last_rep_at = now
+            return self.snapshot()
 
         cues = DRILL_CUES[self.name]
-        cue = cues[self.reps % len(cues)]
-        return self.snapshot("Stop drill", cue)
 
-    def snapshot(self, button_label: str, status: str) -> dict:
+        if self.phase == WAITING_FOR_LOAD:
+            self.loaded_frames = self.loaded_frames + 1 if is_loaded else 0
+            if self.loaded_frames >= CONFIRMATION_FRAMES:
+                self.phase = LOADED
+                self.status = cues[1]
+                self.jumped_frames = 0
+
+        elif self.phase == LOADED:
+            self.jumped_frames = self.jumped_frames + 1 if is_jumped else 0
+            if self.jumped_frames >= CONFIRMATION_FRAMES:
+                self.phase = AIRBORNE
+                self.status = "Jump — press and seal"
+                self.grounded_frames = 0
+
+        elif self.phase == AIRBORNE:
+            self.grounded_frames = 0 if is_jumped else self.grounded_frames + 1
+            if self.grounded_frames >= CONFIRMATION_FRAMES:
+                self.reps += 1
+                self.last_rep_at = monotonic()
+                self.phase = WAITING_FOR_LOAD
+                self.status = cues[2]
+                self.loaded_frames = 0
+                self.jumped_frames = 0
+                self.grounded_frames = 0
+
+        return self.snapshot()
+
+    def tick(self) -> dict:
+        return self.snapshot()
+
+    def snapshot(self) -> dict:
         return {
             "active": self.active,
             "drill": self.name,
             "reps": self.reps,
             "repLabel": f"{self.reps} {'rep' if self.reps == 1 else 'reps'}",
-            "status": status,
-            "buttonLabel": button_label,
+            "phase": self.phase,
+            "status": self.status,
+            "buttonLabel": "Stop drill" if self.active else "Start drill",
         }

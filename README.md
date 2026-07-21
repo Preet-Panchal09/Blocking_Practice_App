@@ -16,7 +16,7 @@ Phone browsers usually block camera access on plain `http://192.168.x.x`. The ea
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -30,15 +30,15 @@ Then open:
 - Phone camera capture with an on-camera landmark and court-guide overlay
 - MediaPipe pose landmark recognition through the FastAPI backend
 - Timed standing-pose calibration and loaded-stance recognition
-- Read, left-close, and right-close drill selection with cues and rep tracking
+- Read, left-close, and right-close drill selection with movement-driven rep tracking
 - Landscape iPhone camera controls with safe-area-aware responsive positioning
 - Health, drill, calibration, and vision API endpoints
 
 ## Next Priorities
 
-1. Improve image-recognition responsiveness and reduce frame-analysis latency.
-2. Add reliable jump recognition using calibrated body movement over time.
-3. Expand rep timing, consistency scoring, hand-position checks, and blocking feedback.
+1. Add drill-specific timing, consistency scoring, and blocking feedback.
+2. Add hand-position and lateral footwork checks.
+3. Tune calibrated movement thresholds with real practice-session data.
 
 ## Python-First Landmark Detection
 
@@ -49,6 +49,16 @@ The app keeps browser-required camera work in JavaScript and pose analysis in Py
 - `app/vision.py` runs the bundled MediaPipe pose landmarker and returns normalized tracked joints.
 - `app/basepose.py` and `app/bodysignals.py` calibrate the athlete's standing pose and recognize a loaded stance.
 - `app/drills.py` owns drill state, cue timing, and rep counts.
+
+## Tests
+
+```powershell
+python -m pytest -q
+```
+
+The test suite covers calibration quality, partial landmark visibility,
+scale-aware body signals, movement-driven rep transitions, API calibration
+gating, and per-phone session isolation.
 
 Planned volleyball-specific checks include:
 

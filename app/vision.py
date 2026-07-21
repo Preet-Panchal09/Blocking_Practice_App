@@ -3,6 +3,7 @@ from functools import lru_cache
 from io import BytesIO
 import os
 from pathlib import Path
+from threading import Lock
 
 os.environ.setdefault(
     "MPLCONFIGDIR",
@@ -46,6 +47,7 @@ LANDMARK_INDEXES = {
 }
 
 MODEL_PATH = Path(__file__).with_name("pose_landmarker_full.task")
+POSE_LANDMARKER_LOCK = Lock()
 
 
 @dataclass
@@ -74,7 +76,9 @@ def image_from_jpeg(frame_bytes: bytes) -> mp.Image:
 
 def analyze_frame(frame_bytes: bytes) -> dict:
     """Run MediaPipe on a browser-captured frame and return normalized joints."""
-    result = get_pose_landmarker().detect(image_from_jpeg(frame_bytes))
+    image = image_from_jpeg(frame_bytes)
+    with POSE_LANDMARKER_LOCK:
+        result = get_pose_landmarker().detect(image)
     pose_landmarks = result.pose_landmarks[0] if result.pose_landmarks else []
 
     landmarks = [
