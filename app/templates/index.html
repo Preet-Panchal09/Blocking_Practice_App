@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f7f4ee" />
     <title>Middle Block Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=5" />
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=7" />
   </head>
   <body>
     <main class="app-shell">
@@ -18,16 +18,16 @@
         </div>
         <div class="practice-overlay">
           <div class="status-strip">
-            <span id="cameraStatus">Camera idle</span>
+            <span id="cameraStatus" aria-live="polite">Camera idle</span>
             <strong id="repCount">0 reps</strong>
           </div>
 
           <section class="control-panel" aria-label="Practice controls">
 
             <div class="actions">
-              <button id="startCamera" class="primary">Start camera</button>
-              <button id="calibratePose" class="secondary" disabled>Calibrate</button>
-              <button id="startDrill" class="secondary" disabled>Start drill</button>
+              <button id="startCamera" class="primary" type="button">Start camera</button>
+              <button id="calibratePose" class="secondary" type="button" disabled>Calibrate</button>
+              <button id="startDrill" class="secondary" type="button" disabled>Start drill</button>
             </div>
           </section>
         </div>
@@ -38,14 +38,14 @@
           <h1 id="drill-heading">Choose your blocking read</h1>
         </div>
         <div class="drill-grid">
-          <button class="drill-card active" data-drill="read"><span>Read</span><small>Hold, track, close.</small></button>
-          <button class="drill-card" data-drill="left"><span>Left close</span><small>Open step to pin.</small></button>
-          <button class="drill-card" data-drill="right"><span>Right close</span><small>Crossover and seal.</small></button>
+          <button class="drill-card active" type="button" data-drill="read"><span>Read</span><small>Hold, track, close.</small></button>
+          <button class="drill-card" type="button" data-drill="left"><span>Left close</span><small>Open step to pin.</small></button>
+          <button class="drill-card" type="button" data-drill="right"><span>Right close</span><small>Crossover and seal.</small></button>
         </div>
       </section>
     </main>
 
-    <script type="module" src="{{ url_for('static', path='/app.js') }}?v=5"></script>
+    <script type="module" src="{{ url_for('static', path='/app.js') }}?v=7"></script>
   </body>
 </html>
 

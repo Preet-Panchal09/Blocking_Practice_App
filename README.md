@@ -20,6 +20,16 @@ python -m pip install -r requirements-dev.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+On Linux, install MediaPipe's OpenGL libraries before creating the virtual environment:
+
+```bash
+sudo apt-get install -y libegl1 libgl1 libglib2.0-0
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
 Then open:
 
 - Computer: `http://localhost:8000`

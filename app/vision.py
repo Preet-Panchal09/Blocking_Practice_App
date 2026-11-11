@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from io import BytesIO
+import logging
 import os
 from pathlib import Path
 from threading import Lock
@@ -12,9 +13,14 @@ os.environ.setdefault(
 
 import mediapipe as mp
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+
+from app.helperfunctions import landmark_is_visible
+
+logger = logging.getLogger(__name__)
+MAX_FRAME_BYTES = 5 * 1024 * 1024
 
 TRACKED_JOINTS = (
     "left_shoulder",
@@ -50,6 +56,14 @@ MODEL_PATH = Path(__file__).with_name("pose_landmarker_full.task")
 POSE_LANDMARKER_LOCK = Lock()
 
 
+class FrameDecodeError(Exception):
+    """The uploaded camera frame is missing or not a readable image."""
+
+
+class VisionUnavailable(Exception):
+    """The pose landmarker could not process a frame."""
+
+
 @dataclass
 class Landmark:
     name: str
@@ -70,26 +84,46 @@ def get_pose_landmarker() -> vision.PoseLandmarker:
 
 
 def image_from_jpeg(frame_bytes: bytes) -> mp.Image:
-    image = Image.open(BytesIO(frame_bytes)).convert("RGB")
-    return mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(image))
+    if not frame_bytes:
+        raise FrameDecodeError("Camera frame was empty")
+    if len(frame_bytes) > MAX_FRAME_BYTES:
+        raise FrameDecodeError("Camera frame is too large")
+
+    try:
+        image = Image.open(BytesIO(frame_bytes)).convert("RGB")
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise FrameDecodeError("Camera frame could not be read") from exc
+
+    pixels = np.ascontiguousarray(image)
+    return mp.Image(image_format=mp.ImageFormat.SRGB, data=pixels)
 
 
 def analyze_frame(frame_bytes: bytes) -> dict:
     """Run MediaPipe on a browser-captured frame and return normalized joints."""
     image = image_from_jpeg(frame_bytes)
-    with POSE_LANDMARKER_LOCK:
-        result = get_pose_landmarker().detect(image)
-    pose_landmarks = result.pose_landmarks[0] if result.pose_landmarks else []
+    try:
+        with POSE_LANDMARKER_LOCK:
+            result = get_pose_landmarker().detect(image)
+    except Exception as exc:
+        logger.exception("Pose detection failed")
+        raise VisionUnavailable("Pose detection is unavailable") from exc
 
-    landmarks = [
-        Landmark(
-            name=name,
-            x=pose_landmarks[index].x,
-            y=pose_landmarks[index].y,
-            visibility=pose_landmarks[index].visibility,
+    pose_landmarks = result.pose_landmarks[0] if result.pose_landmarks else []
+    landmarks = []
+    for name, index in LANDMARK_INDEXES.items():
+        if not pose_landmarks or index >= len(pose_landmarks):
+            continue
+        point = pose_landmarks[index]
+        if not landmark_is_visible(point.visibility):
+            continue
+        landmarks.append(
+            Landmark(
+                name=name,
+                x=float(point.x),
+                y=float(point.y),
+                visibility=float(point.visibility),
+            )
         )
-        for name, index in LANDMARK_INDEXES.items() if pose_landmarks
-    ]
 
     return {
         "landmarks": [asdict(landmark) for landmark in landmarks],

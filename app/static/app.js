@@ -51,8 +51,15 @@ function startLandmarkLoop() {
       applyVisionState(latestPoseResult);
     } catch (error) {
       console.error("Landmark detection failed", error);
-      cameraStatus.textContent = "Vision reconnecting";
-      retryDelay = 500;
+      const message = error instanceof Error ? error.message : "";
+      if (message === "Camera frame is not ready") {
+        retryDelay = 50;
+      } else {
+        if (performance.now() >= jumpStatusUntil) {
+          cameraStatus.textContent = message || "Vision reconnecting";
+        }
+        retryDelay = 500;
+      }
     } finally {
       if (generation === landmarkLoopGeneration) {
         // Start the next capture as soon as this request finishes, without
@@ -81,6 +88,11 @@ function stopLandmarkLoop() {
 }
 
 async function enableCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    cameraStatus.textContent = "Camera needs HTTPS or localhost";
+    return;
+  }
+
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -100,7 +112,14 @@ async function enableCamera() {
     calibratePose.disabled = false;
     startDrill.disabled = true;
   } catch (error) {
-    cameraStatus.textContent = "Camera blocked";
+    const name = error && error.name;
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      cameraStatus.textContent = "Camera permission blocked";
+    } else if (name === "SecurityError" || name === "NotSupportedError") {
+      cameraStatus.textContent = "Camera needs HTTPS or localhost";
+    } else {
+      cameraStatus.textContent = "Camera unavailable";
+    }
     console.error(error);
   }
 }
@@ -135,8 +154,26 @@ function applyDrillState(state) {
   startDrill.textContent = state.buttonLabel;
   calibratePose.disabled = drillActive || !stream;
 
+  // Only the running drill is authoritative. Idle vision frames keep the
+  // default drill name and must not undo the card the athlete selected.
+  if (state.active && state.drill) {
+    selectedDrill = state.drill;
+    drillCards.forEach((card) => {
+      card.classList.toggle("active", card.dataset.drill === state.drill);
+    });
+  }
+  drillCards.forEach((card) => {
+    card.disabled = drillActive;
+  });
+
   if (performance.now() >= jumpStatusUntil) {
     cameraStatus.textContent = state.status;
+  }
+}
+
+function showPoseMessage(message) {
+  if (message && performance.now() >= jumpStatusUntil && !drillActive) {
+    cameraStatus.textContent = message;
   }
 }
 
@@ -145,23 +182,33 @@ function applyVisionState(poseResult) {
     applyCalibrationState(poseResult.calibration);
   }
 
-  if (
-    typeof poseResult.isLoaded !== "boolean" ||
-    typeof poseResult.isJumped !== "boolean"
-  ) {
-    return;
-  }
-
   if (poseResult.calibration?.active) {
     return;
   }
 
+  const landmarks = poseResult.landmarks || [];
+  if (
+    typeof poseResult.isLoaded !== "boolean" ||
+    typeof poseResult.isJumped !== "boolean"
+  ) {
+    showPoseMessage(poseResult.message);
+    return;
+  }
+
   if (!poseResult.calibration?.ready) {
+    if (!poseResult.calibration?.message) {
+      showPoseMessage(poseResult.message);
+    }
     return;
   }
 
   if (poseResult.drill) {
     applyDrillState(poseResult.drill);
+  }
+
+  if (!landmarks.length && poseResult.message) {
+    cameraStatus.textContent = poseResult.message;
+    return;
   }
 
   if (poseResult.isJumped) {
@@ -205,7 +252,8 @@ function applyCalibrationState(calibration) {
     return;
   }
 
-  cameraStatus.textContent = `Calibrating: ${Math.ceil(calibration.timeRemaining)}s`;
+  const sampleLabel = `${calibration.samples}/${calibration.minimumSamples}`;
+  cameraStatus.textContent = `Calibrating: ${Math.ceil(calibration.timeRemaining)}s (${sampleLabel})`;
   calibratePose.textContent = "Calibrating";
 }
 
@@ -272,37 +320,46 @@ function resizeLandmarkCanvas(video, canvas) {
   }
 }
 
+function markerRadius(canvas) {
+  const displayedWidth = canvas.clientWidth || canvas.width;
+  const displayedHeight = canvas.clientHeight || canvas.height;
+  if (!canvas.width || !canvas.height || !displayedWidth || !displayedHeight) {
+    return 8;
+  }
+
+  // object-fit: cover scales the frame uniformly, then crops it. Size the
+  // marker in bitmap pixels so it stays readable on the phone screen.
+  const coverScale = Math.max(displayedWidth / canvas.width, displayedHeight / canvas.height);
+  return Math.max(4, 8 / coverScale);
+}
+
 function drawLandmarkOverlay(canvas, poseResult) {
   const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (!poseResult.landmarks.length) {
-    drawWaitingState(ctx, canvas, poseResult.message);
+  if (!ctx) {
     return;
   }
 
-  poseResult.landmarks.forEach((landmark) => {
-    drawPoint(ctx, landmark.x * canvas.width, landmark.y * canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const landmarks = poseResult.landmarks || [];
+  const radius = markerRadius(canvas);
+  landmarks.forEach((landmark) => {
+    drawPoint(ctx, landmark.x * canvas.width, landmark.y * canvas.height, radius);
   });
 }
 
-function drawPoint(ctx, x, y) {
+function drawPoint(ctx, x, y, radius) {
   ctx.beginPath();
-  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = "rgba(255, 176, 92, 0.92)";
   ctx.fill();
 }
 
-function drawWaitingState(ctx, canvas, message = "Python vision endpoint ready") {
-  ctx.save();
-  ctx.font = "14px Segoe UI, system-ui, sans-serif";
-  ctx.fillStyle = "rgba(247, 244, 238, 0.78)";
-  ctx.fillText(message, 18, 28);
-  ctx.restore();
-}
-
 drillCards.forEach((card) => {
   card.addEventListener("click", () => {
+    if (drillActive || card.disabled) {
+      return;
+    }
+
     drillCards.forEach((item) => item.classList.remove("active"));
     card.classList.add("active");
     selectedDrill = card.dataset.drill;

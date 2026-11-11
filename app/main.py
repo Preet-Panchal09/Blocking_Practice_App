@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from pathlib import Path
 from secrets import token_urlsafe
 from time import monotonic
 
@@ -10,7 +11,9 @@ from starlette.concurrency import run_in_threadpool
 
 from app.bodysignals import Bodysignal
 from app.practice import PracticeState
-from app.vision import analyze_frame
+from app.vision import FrameDecodeError, VisionUnavailable, analyze_frame
+
+APP_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="Blocking Practice")
 practice_sessions: dict[str, PracticeState] = {}
@@ -21,8 +24,8 @@ CALIBRATION_MIN_SAMPLES = 10
 SESSION_COOKIE = "blocking_practice_session"
 SESSION_TTL_SECONDS = 12 * 60 * 60
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
 @app.middleware("http")
@@ -61,7 +64,7 @@ async def practice_session_middleware(request: Request, call_next):
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/health")
@@ -154,9 +157,20 @@ async def drill_tick(request: Request):
 async def analyze_camera_frame(request: Request, frame: UploadFile = File(...)):
     state: PracticeState = request.state.practice
     frame_bytes = await frame.read()
-    vision_result = await run_in_threadpool(analyze_frame, frame_bytes)
+    try:
+        vision_result = await run_in_threadpool(analyze_frame, frame_bytes)
+    except FrameDecodeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VisionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     landmarks = vision_result["landmarks"]
     body_signal = Bodysignal.get_body_signal_from_landmarks(landmarks)
+    pose_seen = (
+        body_signal is not None
+        and body_signal.hip_y is not None
+        and body_signal.shoulder_y is not None
+    )
     calibration = calibration_snapshot(state)
 
     if calibration["collecting"]:
@@ -166,7 +180,11 @@ async def analyze_camera_frame(request: Request, frame: UploadFile = File(...)):
     is_ready = calibration["ready"]
     is_loaded = is_ready and Bodysignal.get_is_loaded(body_signal, state.base_pose)
     is_jumped = is_ready and Bodysignal.get_is_jumped(body_signal, state.base_pose)
-    drill_state = state.drill_session.update(is_loaded, is_jumped)
+    drill_state = state.drill_session.update(
+        is_loaded,
+        is_jumped,
+        pose_seen=pose_seen,
+    )
 
     return {
         **vision_result,

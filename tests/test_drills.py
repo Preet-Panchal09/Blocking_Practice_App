@@ -24,6 +24,26 @@ def test_rep_requires_loaded_jump_and_landing_sequence():
     assert state["reps"] == 1
 
 
+def test_lost_tracking_holds_the_rep_phase():
+    session = DrillSession()
+    session.start("read")
+    session.update(is_loaded=True, is_jumped=False)
+    session.update(is_loaded=True, is_jumped=False)
+    session.update(is_loaded=False, is_jumped=True)
+    state = session.update(is_loaded=False, is_jumped=True)
+    assert state["phase"] == AIRBORNE
+
+    session.update(is_loaded=False, is_jumped=False, pose_seen=False)
+    state = session.update(is_loaded=False, is_jumped=False, pose_seen=False)
+    assert state["phase"] == AIRBORNE
+    assert state["reps"] == 0
+
+    session.update(is_loaded=False, is_jumped=False)
+    state = session.update(is_loaded=False, is_jumped=False)
+    assert state["phase"] == WAITING_FOR_LOAD
+    assert state["reps"] == 1
+
+
 def test_tick_does_not_create_reps():
     session = DrillSession()
     session.start("left")
