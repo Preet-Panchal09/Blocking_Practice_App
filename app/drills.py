@@ -46,9 +46,14 @@ class DrillSession:
         self.status = "Camera live"
         return self.snapshot()
 
-    def update(self, is_loaded: bool, is_jumped: bool) -> dict:
+    def update(self, is_loaded: bool, is_jumped: bool, *, pose_seen: bool = True) -> dict:
         """Advance the drill from confirmed pose events, never elapsed time."""
         if not self.active:
+            return self.snapshot()
+
+        # A missed detection is not a landing or a reset. Hold the phase until
+        # the hips and shoulders are visible again.
+        if not pose_seen:
             return self.snapshot()
 
         cues = DRILL_CUES[self.name]

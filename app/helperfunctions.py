@@ -1,19 +1,22 @@
+VISIBILITY_THRESHOLD = 0.7
+
+
 def get_landmark_by_name(landmarks: list[dict], name: str) -> dict | None:
     for landmark in landmarks:
         if landmark.get("name") == name:
             return landmark
     return None
-    
+
+
+def landmark_is_visible(visibility: float | None) -> bool:
+    return visibility is not None and visibility >= VISIBILITY_THRESHOLD
+
+
 def get_if_visible(landmark: dict | None) -> bool:
-    minimum: float = 0.7
     if landmark is None:
         return False
 
-    visibility = landmark.get("visibility")
-    if visibility is None:
-        return False
-        
-    return visibility >= minimum
+    return landmark_is_visible(landmark.get("visibility"))
 
 def average_y(landmarks: list[dict], left_name: str, right_name: str) -> float | None:
     left_landmark = get_landmark_by_name(landmarks, left_name)
